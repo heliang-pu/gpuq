@@ -1,0 +1,68 @@
+# gq machine pool: copy this file to hosts.toml (git-ignored) and describe your own machines.
+# The daemon runs on one host (the scheduler) and reaches every other host with the ssh aliases below
+# (its public key must be in their authorized_keys). Jobs run as the ssh user, in <jobdir>/j<id>_a<attempt>_r<rank>/.
+#
+# A GPU is free for an exclusive job (no --mem) when no gq job holds it and it uses less than idle_mib (processes
+# outside the queue count as busy and are waited for). A job with --mem GB may share a GPU when
+# total - used - (memory promised to gq jobs and not yet allocated) - headroom_gb >= mem.
+# opt_in hosts only take jobs that name them (or one of their tags) in --host.
+# reach = how the other machines ssh to a host, for transfers (gq cp); `gq net` shows which pairs work.
+# compute = false makes a host a transfer endpoint only (e.g. a NAS).
+
+[defaults]
+state_dir = "~/.local/share/gq"   # SQLite queue + daemon log
+poll_s = 20
+web_host = "0.0.0.0"
+web_port = 8796
+port_base = 29500                 # multi-node MASTER_PORT = port_base + id % 1000
+idle_mib = 2000
+headroom_gb = 4
+# Run on the scheduler host for every alert (job done / failed, whole machine idle, job at ~0 % GPU, host offline),
+# with GQ_EVENT GQ_TEXT (+ GQ_JOB_ID GQ_NAME GQ_STATE GQ_EXIT GQ_HOSTS for jobs). Errors go to <state_dir>/notify.log.
+notify_cmd = ""                   # e.g. 'curl -s -d "$GQ_TEXT" https://ntfy.sh/my-topic'
+web_url = ""                      # appended to alerts, e.g. "http://scheduler.lan:8796/"
+idle_alert_min = 30               # a whole machine idle this long
+hung_alert_min = 30               # a running GPU job below 5 % utilisation on all its GPUs this long
+offline_alert_min = 10
+history_days = 14
+
+# A group = hosts that may share one multi-node job (e.g. two nodes on the same InfiniBand fabric).
+# Rank 0 is the first host of the group in the order below. env is exported to the group's multi-node jobs.
+[group.cluster-a.env]
+NCCL_SOCKET_IFNAME = "eth0"
+
+[[host]]
+name = "node1"
+ssh = "node1"                     # alias in the scheduler's ~/.ssh/config
+reach = ["root@192.0.2.11:22"]    # how the others ssh here (transfers)
+tags = ["a100"]
+group = "cluster-a"
+addr = "10.0.0.11"                # address the group's other nodes use (MASTER_ADDR)
+jobdir = "/data/gq"
+
+[[host]]
+name = "node2"
+ssh = "node2"
+reach = ["root@192.0.2.12:22"]
+tags = ["a100"]
+group = "cluster-a"
+addr = "10.0.0.12"
+jobdir = "/data/gq"
+
+[[host]]
+name = "ws1"
+ssh = ""                          # empty: the scheduler itself runs here
+reach = ["me@192.0.2.20"]
+tags = ["workstation"]
+jobdir = "~/gq"
+idle_mib = 3000                   # a desktop session takes 0.5-2 GB
+
+# A machine that is also used interactively: only jobs that name it and give --mem go here.
+[[host]]
+name = "ws0"
+ssh = "ws0"
+reach = ["me@192.0.2.21"]
+tags = ["workstation", "shared"]
+jobdir = "~/gq"
+opt_in = true
+headroom_gb = 6

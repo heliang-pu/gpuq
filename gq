@@ -1,0 +1,4 @@
+#!/bin/bash
+# gq: GPU queue over the fleet (see README.md). Runs with the system python3 (stdlib only).
+D=$(dirname "$(readlink -f "$0")")
+PYTHONPATH="$D${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m gpuq.cli "$@"

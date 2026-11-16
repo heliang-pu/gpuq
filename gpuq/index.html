@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>算力队列</title>
+<style>
+:root {
+  --bg: #f6f7f9; --card: #fff; --fg: #1d2330; --muted: #6b7280; --line: #e3e6eb;
+  --ours: #2f6fdb; --foreign: #d9822b; --idle: #3aa66a; --bad: #d14343; --bar: #eceff3;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #14171c; --card: #1d2128; --fg: #e6e8ec; --muted: #9aa1ad; --line: #2c313a;
+          --ours: #5b8ff0; --foreign: #e09a4c; --idle: #4cc282; --bad: #ef6b6b; --bar: #2a2f37; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 system-ui, -apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+header { display: flex; gap: 16px; align-items: baseline; padding: 14px 16px 4px; flex-wrap: wrap; }
+h1 { font-size: 18px; margin: 0; }
+h2 { font-size: 15px; margin: 18px 16px 8px; }
+.muted { color: var(--muted); }
+.summary { display: flex; gap: 18px; flex-wrap: wrap; }
+.summary b { font-size: 16px; }
+.hosts { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; padding: 0 16px; }
+.host { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.host.down { opacity: .6; }
+.hhead { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; gap: 8px; }
+.hname { font-weight: 600; }
+.tag { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; margin-left: 4px; }
+.gpu { display: grid; grid-template-columns: 26px 1fr 92px; gap: 6px; align-items: center; margin: 3px 0; font-size: 12px; }
+.bar { height: 14px; background: var(--bar); border-radius: 3px; position: relative; overflow: hidden; }
+.bar > span { position: absolute; top: 0; bottom: 0; left: 0; }
+.who { grid-column: 2 / 4; font-size: 11px; color: var(--muted); margin: -2px 0 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+table { border-collapse: collapse; width: calc(100% - 32px); margin: 0 16px 24px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; font-size: 13px; }
+th { font-weight: 600; color: var(--muted); font-size: 12px; }
+td.cmd { font-family: ui-monospace, Menlo, monospace; font-size: 12px; max-width: 360px; word-break: break-all; }
+.st { font-weight: 600; }
+.st.running { color: var(--ours); } .st.pending, .st.starting { color: var(--foreign); }
+.st.done { color: var(--idle); } .st.failed { color: var(--bad); } .st.cancelled, .st.held { color: var(--muted); }
+button { font: inherit; font-size: 12px; padding: 2px 8px; border-radius: 5px; border: 1px solid var(--line); background: var(--card); color: var(--fg); cursor: pointer; margin: 1px; }
+button:hover { border-color: var(--ours); }
+.tablewrap { overflow-x: auto; }
+dialog { width: min(1000px, 94vw); height: 80vh; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--fg); padding: 0; }
+dialog pre { margin: 0; padding: 12px; height: calc(80vh - 46px); overflow: auto; font-size: 12px; white-space: pre-wrap; }
+dialog .dh { display: flex; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.btn-main { background: var(--ours); color: #fff; border-color: var(--ours); padding: 4px 14px; font-size: 13px; }
+.btn-main:hover { filter: brightness(1.1); }
+form.sub { padding: 12px 14px; display: grid; grid-template-columns: 96px 1fr; gap: 8px 10px; align-items: center; overflow: auto; max-height: calc(86vh - 50px); }
+form.sub label { color: var(--muted); font-size: 13px; }
+form.sub input, form.sub textarea, form.sub select { font: inherit; font-size: 13px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--bg); color: var(--fg); width: 100%; }
+form.sub textarea { font-family: ui-monospace, Menlo, monospace; min-height: 70px; }
+form.sub .row { display: flex; gap: 8px; align-items: center; }
+form.sub .row > * { flex: 1; } form.sub .row > select { flex: 0 0 110px; }
+form.sub .hint { grid-column: 2; font-size: 11px; color: var(--muted); margin-top: -4px; }
+.tabs button.on { border-color: var(--ours); color: var(--ours); font-weight: 600; }
+dialog#subdlg { height: auto; max-height: 86vh; }
+.tl { display: grid; grid-template-columns: 70px 1fr 210px; gap: 8px; align-items: center; margin: 3px 16px; font-size: 12px; }
+.tlbar { display: flex; height: 18px; border-radius: 3px; overflow: hidden; background: var(--bar); gap: 1px; }
+.tlbar > div { flex: 1; }
+.axis { display: grid; grid-template-columns: 70px 1fr 210px; gap: 8px; margin: 0 16px 6px; font-size: 11px; color: var(--muted); }
+.axis > div:nth-child(2) { display: flex; justify-content: space-between; }
+table.net td, table.net th { text-align: center; padding: 4px 6px; }
+table.net td:first-child, table.net th:first-child { text-align: left; }
+.ok { color: var(--idle); } .no { color: var(--bad); }
+#toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 6px 14px; border-radius: 6px; display: none; }
+@media (max-width: 600px) { .hosts { grid-template-columns: 1fr; } td.cmd { max-width: 180px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>算力队列</h1>
+  <div class="summary" id="summary"></div>
+  <span class="muted" id="age"></span>
+  <span style="margin-left:auto"><button class="btn-main" onclick="openSubmit('run')">提交任务</button> <button class="btn-main" onclick="openSubmit('transfer')">传输数据</button></span>
+</header>
+<div class="muted" style="padding: 0 16px 6px; font-size: 12px">
+  <span class="dot" style="background:var(--ours)"></span>队列任务
+  <span class="dot" style="background:var(--foreign); margin-left:10px"></span>队列外进程（避让）
+  <span class="dot" style="background:var(--idle); margin-left:10px"></span>空闲
+  · 命令行：<code>gq submit -g 8 -H a100 -- bash launch.sh</code> · <code>gq cp ws0:/data/x node3:/data/</code>
+</div>
+<div class="hosts" id="hosts"></div>
+<h2>队列</h2>
+<div class="tablewrap"><table id="queue"></table></div>
+<h2>队列外正在运行 <span class="muted" style="font-weight:400;font-size:12px">不是 gq 提交的 GPU 任务（手动起的训练、别人的进程），自动发现，调度会避开它们占的卡</span></h2>
+<div class="tablewrap"><table id="external"></table></div>
+<h2>过去 24 小时 <span class="muted" style="font-weight:400;font-size:12px">每格约 10 分钟：<span style="color:var(--ours)">■</span> 队列任务 <span style="color:var(--foreign)">■</span> 队列外 <span style="color:var(--idle)">■</span> 空闲 <span style="color:var(--muted)">■</span> 离线；右边是卡·小时</span></h2>
+<div id="history"></div>
+<h2>机器间连通 <span class="muted" style="font-weight:400;font-size:12px">传输怎么走：✓ 行能直接 ssh 到列（rsync 直传）；都 ✗ 就经调度机中转。gq net --authorize A B 打通</span></h2>
+<div class="tablewrap"><table class="net" id="net"></table></div>
+<dialog id="subdlg"><div class="dh"><span class="tabs"><button id="tab-run" onclick="openSubmit('run')">提交任务</button> <button id="tab-transfer" onclick="openSubmit('transfer')">传输数据</button></span><button onclick="subdlg.close()">关闭</button></div>
+<form class="sub" id="form-run" onsubmit="return submitForm(event, 'run')">
+  <label>名称</label><input name="name" placeholder="spec_bell_e10">
+  <label>命令</label><textarea name="cmd" required placeholder="bash launch_spec.sh bell"></textarea>
+  <label>工作目录</label><input name="cwd" placeholder="远端目录，如 /data/myproject；空 = 任务自己的目录">
+  <label>卡数</label><div class="row"><input name="gpus" type="number" min="0" value="1"><span class="muted">机器数</span><input name="nodes" type="number" min="1" value="1"></div>
+  <span class="hint">多卡只用级联的卡：同一台机器内，或 hosts.toml 里同一组的多台机器；单卡机器不会拼在一起。0 卡 = CPU 任务</span>
+  <label>机器 / 标签</label><input name="hosts" placeholder="空 = 任意；机器名或标签（opt_in 的机器需点名 + 共享显存）">
+  <label>共享显存</label><input name="mem_gb" type="number" min="0" step="0.5" placeholder="GB / 卡；空 = 整卡独占">
+  <label>依赖</label><input name="after" placeholder="任务号，如 12 13（它们成功后才开始）">
+  <label>优先级</label><div class="row"><input name="priority" type="number" value="0"><span class="muted">时限</span><input name="time_limit" placeholder="8h / 90m，空 = 不限"><span class="muted">重试</span><input name="retries" type="number" min="0" value="0"></div>
+  <label></label><label><input type="checkbox" name="hold" style="width:auto"> 先暂缓（放行后才开始）</label>
+  <label>口令</label><input name="token" type="password" required placeholder="调度机上 gq token 查看（浏览器会记住）">
+  <label></label><div><button class="btn-main" type="submit">提交</button> <span id="msg-run" class="muted"></span></div>
+</form>
+<form class="sub" id="form-transfer" onsubmit="return submitForm(event, 'transfer')">
+  <label>从</label><div class="row"><select name="src_host"></select><input name="src_path" required placeholder="/home/me/data/clean_v1（末尾带 / = 只传内容）"></div>
+  <label>到</label><div class="row"><select name="dst_host"></select><input name="dst_path" required placeholder="目标目录，如 /data/dataset/"></div>
+  <span class="hint">rsync 语义：<code>/a/ds</code> → 目标目录下得到 <code>ds/</code>；<code>/a/ds/</code> → 只传里面的内容。断了会续传，默认重试 2 次</span>
+  <label>名称</label><input name="name" placeholder="空 = 自动">
+  <label>依赖</label><input name="after" placeholder="任务号（比如等训练结束再传权重）">
+  <label>优先级</label><div class="row"><input name="priority" type="number" value="0"><span class="muted">限速</span><input name="bwlimit" placeholder="如 50m，空 = 不限"></div>
+  <label></label><label><input type="checkbox" name="delete" style="width:auto"> 删除目标里多出的文件（rsync --delete）</label>
+  <label>口令</label><input name="token" type="password" required placeholder="调度机上 gq token 查看（浏览器会记住）">
+  <label></label><div><button class="btn-main" type="submit">提交传输</button> <span id="msg-transfer" class="muted"></span></div>
+</form></dialog>
+<dialog id="logdlg"><div class="dh"><b id="logtitle"></b><span><button onclick="loadLog()">刷新</button><button onclick="logdlg.close()">关闭</button></span></div><pre id="logtext"></pre></dialog>
+<div id="toast"></div>
+<script>
+let state = null, logJob = null, logRank = 0;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const gb = (mib) => (mib / 1024).toFixed(mib >= 10240 ? 0 : 1);
+function dur(s) { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+  return h ? `${h}h${String(m).padStart(2, "0")}m` : m ? `${m}m${String(s % 60).padStart(2, "0")}s` : `${s}s`; }
+function ts(t) { if (!t) return ""; const d = new Date((t + 8 * 3600) * 1000); // Beijing time
+  return `${d.getUTCMonth() + 1}-${d.getUTCDate()} ${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`; }
+const STATE = { pending: "排队", held: "暂缓", starting: "启动中", running: "运行", done: "完成", failed: "失败", cancelled: "取消" };
+
+function renderHosts() {
+  const hosts = state.snap.hosts || [];
+  let total = 0, idle = 0, ours = 0, foreign = 0;
+  $("hosts").innerHTML = hosts.map((h) => {
+    const rows = h.gpus.map((g) => {
+      total++; if (g.jobs.length) ours++; else if (g.idle) idle++; else foreign++;
+      const fmem = g.foreign.reduce((a, f) => a + f.mem, 0);
+      const pct = (x) => Math.min(100, 100 * x / g.total);
+      const oursMem = Math.max(0, g.used - fmem);
+      const color = g.jobs.length ? "var(--ours)" : g.idle ? "var(--idle)" : "var(--foreign)";
+      const who = [
+        ...g.jobs.map((j) => `<span style="color:var(--ours)">#${j.id} ${esc(j.name)}</span>`),
+        ...g.foreign.map((f) => `<span style="color:var(--foreign)" title="${esc(f.args)}">${esc(f.user)}:${f.pid} ${esc(f.short || "")} ${gb(f.mem)}G</span>`),
+      ].join(" · ");
+      const unknown = !g.jobs.length && !g.foreign.length && !g.idle ? `<span style="color:var(--foreign)">已占用 ${gb(g.used)}G（看不到进程）</span>` : "";
+      return `<div class="gpu"><span class="muted">${g.idx}</span>
+        <div class="bar" title="${gb(g.used)} / ${gb(g.total)} GB · util ${g.util}%">
+          <span style="width:${pct(g.used)}%;background:${g.idle ? "var(--idle)" : "var(--foreign)"};opacity:.85"></span>
+          ${g.jobs.length ? `<span style="width:${pct(oursMem)}%;background:var(--ours)"></span>` : ""}
+        </div>
+        <span class="muted"><span class="dot" style="background:${color}"></span>${gb(g.used)}/${gb(g.total)}G ${g.util}%</span>
+        ${who || unknown ? `<div class="who">${who || unknown}</div>` : ""}</div>`;
+    }).join("");
+    const tags = [...h.tags, h.group && "组 " + h.group, h.opt_in && "需点名"].filter(Boolean).map((t) => `<span class="tag">${esc(t)}</span>`).join("");
+    return `<div class="host ${h.up ? "" : "down"}"><div class="hhead"><span><span class="hname">${esc(h.name)}</span>${tags}</span>
+      <span class="muted" style="font-size:12px">${h.up ? `${h.gpus.filter((g) => g.idle).length}/${h.gpus.length} 空闲` : "离线"}</span></div>
+      ${h.up ? rows : `<div class="muted" style="font-size:12px">${esc(h.err)}</div>`}</div>`;
+  }).join("");
+  const q = state.jobs.filter((j) => j.state === "pending").length, r = state.jobs.filter((j) => j.state === "running").length;
+  $("summary").innerHTML = `<span>GPU <b>${total}</b></span><span>空闲 <b style="color:var(--idle)">${idle}</b></span>
+    <span>队列任务 <b style="color:var(--ours)">${ours}</b></span><span>队列外 <b style="color:var(--foreign)">${foreign}</b></span>
+    <span>运行 <b>${r}</b> · 排队 <b>${q}</b></span>`;
+}
+
+function renderQueue() {
+  const now = state.now;
+  const head = `<tr><th>#</th><th>状态</th><th>名称</th><th>资源</th><th>位置 / 原因</th><th>命令</th><th>时间</th><th></th></tr>`;
+  if (!state.jobs.length) { $("queue").innerHTML = head + `<tr><td colspan="8" class="muted">队列是空的：用 gq submit 提交的任务会出现在这里</td></tr>`; return; }
+  $("queue").innerHTML = head + state.jobs.map((j) => {
+    const st = (state.stats || {})[j.id];
+    const util = j.state === "running" && st && j.gpus > 0 ? `<br><span class="muted">利用率 ${st.util}% · ${gb(st.mem_mib)}G</span>` : "";
+    const res = j.kind === "transfer" ? `传输<br><span class="muted">在 ${esc(j.hosts[0] || "")} 上跑</span>`
+      : `${j.gpus} 卡${j.nodes > 1 ? ` ×${j.nodes}机` : ""}${j.mem_gb != null ? ` · ${j.mem_gb}G共享` : ""}${j.hosts.length ? `<br><span class="muted">${esc(j.hosts.join(","))}</span>` : ""}${util}`;
+    const where = j.placement.length ? j.placement.map((p) => `${esc(p.host)}:${p.gpus.join(",")}`).join(" + ") : "";
+    const why = j.reason ? `<div class="muted">${esc(j.reason)}</div>` : "";
+    const deps = j.after.length ? `<div class="muted">依赖 ${j.after.map((d) => "#" + d).join(" ")}${j.after_any ? "（任意结果）" : ""}</div>` : "";
+    const time = j.state === "running" ? `已运行 ${dur(now - j.started)}`
+      : j.ended ? `${ts(j.ended)}${j.started ? `<br><span class="muted">用时 ${dur(j.ended - j.started)}</span>` : ""}`
+      : `提交 ${ts(j.submitted)}<br><span class="muted">等了 ${dur(now - j.submitted)}</span>`;
+    const b = (op, label, extra = "") => `<button onclick="op(${j.id},'${op}'${extra})">${label}</button>`;
+    const acts = [
+      (j.placement.length || j.tail) && `<button onclick="openLog(${j.id})">日志</button>`,
+      ["pending", "held", "running", "starting"].includes(j.state) && b("cancel", "取消"),
+      j.state === "pending" && b("hold", "暂缓"),
+      j.state === "held" && b("release", "放行"),
+      ["pending", "held"].includes(j.state) && b("prio", "优先级+", `,${j.priority + 1}`),
+      ["pending", "held"].includes(j.state) && b("prio", "−", `,${j.priority - 1}`),
+      ["done", "failed", "cancelled"].includes(j.state) && b("resubmit", "重跑"),
+    ].filter(Boolean).join("");
+    return `<tr><td>${j.id}${j.priority ? `<br><span class="muted">P${j.priority}</span>` : ""}</td>
+      <td class="st ${j.state}">${STATE[j.state] || j.state}${j.exit_code != null && j.state !== "done" ? `<br><span class="muted">exit ${j.exit_code}</span>` : ""}${j.attempt > 1 ? `<br><span class="muted">第${j.attempt}次</span>` : ""}</td>
+      <td>${esc(j.name)}</td><td>${res}</td><td>${where}${why}${deps}</td>
+      <td class="cmd">${cmdCell(j)}</td><td>${time}</td><td>${acts}</td></tr>`;
+  }).join("");
+}
+
+const HOW = { same: "本机复制", push: "源机推送", pull: "目标机拉取", relay: "经调度机中转" };
+function cmdCell(j) {
+  if (j.kind === "transfer") {
+    const m = /(\S+:\/\S*) -> (\S+:\/\S*) \((\w+)\)/.exec(j.submit_info || "");
+    if (m) return `<span title="${esc(j.cmd)}">${esc(m[1])}<br>→ ${esc(m[2])}<br><span class="muted">${HOW[m[3]] || m[3]}（rsync 断点续传）</span></span>`;
+  }
+  return esc(j.cmd);
+}
+function groupExternal(ext) {
+  // many small processes of one kind on one host (e.g. 12 sim collectors) -> one row
+  const g = new Map();
+  for (const e of ext) {
+    const k = `${e.host}|${e.user}|${e.name}`;
+    const x = g.get(k);
+    if (!x) { g.set(k, { ...e, n: 1, gpus: [...e.gpus] }); continue; }
+    x.n++; x.mem_mib += e.mem_mib; x.procs += e.procs; x.elapsed = Math.max(x.elapsed, e.elapsed);
+    x.mem_per_gpu = Math.max(x.mem_per_gpu, e.mem_per_gpu);
+    x.gpus = [...new Set([...x.gpus, ...e.gpus])].sort((a, b) => a - b);
+  }
+  return [...g.values()];
+}
+function renderExternal() {
+  const ext = groupExternal(state.snap.external || []);
+  const head = `<tr><th>机器</th><th>GPU</th><th>用户</th><th>名称</th><th>显存</th><th>已运行</th><th>命令</th></tr>`;
+  $("external").innerHTML = head + (ext.length ? ext.map((e) => `<tr>
+    <td>${esc(e.host)}</td><td>${e.gpus.length} 卡<br><span class="muted">${e.gpus.join(",")}</span></td>
+    <td>${esc(e.user)}</td><td>${esc(e.name)}${e.n > 1 ? ` <b>×${e.n}</b>` : ""}<br><span class="muted">${e.n > 1 ? `${e.n} 组，` : ""}${e.procs} 个进程</span></td>
+    <td>${gb(e.mem_mib)}G<br><span class="muted">每卡 ≤${gb(e.mem_per_gpu)}G</span></td>
+    <td>${dur(e.elapsed)}</td><td class="cmd" title="${esc(e.cmd)}">${esc(e.cmd.length > 220 ? e.cmd.slice(0, 220) + "…" : e.cmd)}${e.n > 1 ? `<br><span class="muted">（另有 ${e.n - 1} 组同名，显示最先的一组）</span>` : ""}</td></tr>`).join("")
+    : `<tr><td colspan="7" class="muted">没有</td></tr>`);
+}
+
+async function refresh() {
+  try {
+    const r = await fetch("/api/state"); state = await r.json();
+    renderHosts(); renderQueue(); renderExternal();
+    const age = state.now - (state.snap.t || 0);
+    $("age").textContent = state.snap.t ? `${Math.round(age)} s 前采样` + (age > 90 ? "（守护进程可能停了）" : "") : "还没有采样";
+  } catch (e) { $("age").textContent = "连不上 gq 守护进程"; }
+}
+async function op(id, op, value) {
+  if (op === "cancel" && !confirm(`取消 #${id}？运行中的任务会被终止。`)) return;
+  const r = await fetch("/api/op", { method: "POST", body: JSON.stringify({ id, op, value }) });
+  const d = await r.json(); toast(d.msg || d.error); refresh();
+}
+function toast(s) { const t = $("toast"); t.textContent = s; t.style.display = "block"; clearTimeout(t._h); t._h = setTimeout(() => (t.style.display = "none"), 2500); }
+function openLog(id) { logJob = id; logRank = 0; $("logtitle").textContent = `#${id} 日志（rank 0，最后 300 行）`; $("logdlg").showModal(); loadLog(); }
+async function loadLog() { $("logtext").textContent = "读取中…"; const r = await fetch(`/api/log?id=${logJob}&rank=${logRank}&n=300`);
+  const pre = $("logtext"); pre.textContent = await r.text(); pre.scrollTop = pre.scrollHeight; }
+
+function bucketStyle(b) {
+  const [, idle, ours, foreign, down] = b, p = (x) => (100 * x).toFixed(1);
+  const a = ours, c = a + foreign, d = c + idle, e = d + down;
+  return `background:linear-gradient(to top, var(--ours) 0 ${p(a)}%, var(--foreign) ${p(a)}% ${p(c)}%, var(--idle) ${p(c)}% ${p(d)}%, var(--muted) ${p(d)}% ${p(e)}%, var(--bar) ${p(e)}%)`;
+}
+async function loadHistory() {
+  try {
+    const h = await (await fetch("/api/history?hours=24")).json();
+    const n = 144, t0 = h.since, B = h.bucket;
+    const names = (state && state.hosts) || Object.keys(h.hosts);
+    const rows = names.filter((name) => h.hosts[name]).map((name) => {
+      const x = h.hosts[name], cols = new Array(n).fill(null);
+      for (const b of x.buckets) { const i = Math.floor((b[0] - t0) / B); if (i >= 0 && i < n) cols[i] = b; }
+      const bars = cols.map((b) => b ? `<div style="${bucketStyle(b)}" title="${ts(b[0])} 队列 ${Math.round(b[2] * 100)}% · 外 ${Math.round(b[3] * 100)}% · 空 ${Math.round(b[1] * 100)}% · 利用率 ${Math.round(b[5])}%"></div>` : `<div></div>`).join("");
+      const f = (v) => (v || 0).toFixed(v >= 10 ? 0 : 1);
+      return `<div class="tl"><span>${esc(name)}</span><div class="tlbar">${bars}</div>
+        <span class="muted"><span style="color:var(--ours)">${f(x.ours_h)}</span> · <span style="color:var(--foreign)">${f(x.foreign_h)}</span> · <span style="color:var(--idle)">空 ${f(x.idle_h)}</span> 卡·h</span></div>`;
+    });
+    const ticks = [0, 6, 12, 18, 24].map((k) => `<span>${ts(t0 + k * 3600).split(" ")[1]}</span>`).join("");
+    $("history").innerHTML = rows.length ? rows.join("") + `<div class="axis"><span></span><div>${ticks}</div><span></span></div>`
+      : `<div class="muted" style="margin:0 16px">还没有记录（每分钟记一次）</div>`;
+  } catch (e) { $("history").textContent = "读取失败"; }
+}
+async function loadNet() {
+  try {
+    const r = await (await fetch("/api/routes")).json();
+    if (!r.t) { $("net").innerHTML = `<tr><td class="muted">还没有探测（守护进程启动后会自动探测，约 30 s）</td></tr>`; return; }
+    const H = r.hosts;
+    $("net").innerHTML = `<tr><th>从 ＼ 到</th>${H.map((h) => `<th>${esc(h)}</th>`).join("")}</tr>` + H.map((s) =>
+      `<tr><td>${esc(s)}</td>${H.map((d) => { if (s === d) return `<td class="muted">·</td>`;
+        const via = (r.routes[s] || {})[d]; return via ? `<td class="ok" title="${esc(via)}">✓</td>` : `<td class="no">✗</td>`; }).join("")}</tr>`).join("")
+      + `<tr><td colspan="${H.length + 1}" class="muted" style="text-align:left">探测于 ${ts(r.t)}（每 6 小时一次）</td></tr>`;
+  } catch (e) {}
+}
+function getTok() { try { return localStorage.getItem("gq_token") || ""; } catch (e) { return ""; } }
+function setTok(t) { try { localStorage.setItem("gq_token", t); } catch (e) {} }
+function openSubmit(kind) {
+  for (const k of ["run", "transfer"]) { $("form-" + k).style.display = k === kind ? "" : "none"; $("tab-" + k).classList.toggle("on", k === kind); }
+  const f = $("form-" + kind); f.token.value = f.token.value || getTok();
+  if (kind === "transfer" && state) for (const sel of [f.src_host, f.dst_host]) {
+    if (!sel.options.length) sel.innerHTML = state.hosts.map((h) => `<option>${esc(h)}</option>`).join("");
+  }
+  if (!$("subdlg").open) $("subdlg").showModal();
+}
+async function submitForm(ev, kind) {
+  ev.preventDefault();
+  const f = $("form-" + kind), d = Object.fromEntries(new FormData(f).entries());
+  d.kind = kind; d.hold = !!f.hold?.checked; d.delete = !!f.delete?.checked;
+  if (kind === "transfer") { d.src = `${d.src_host}:${d.src_path}`; d.dst = `${d.dst_host}:${d.dst_path}`; }
+  for (const k of ["gpus", "nodes", "priority", "retries"]) if (d[k] !== undefined && d[k] !== "") d[k] = Number(d[k]);
+  if (d.mem_gb === "") delete d.mem_gb;
+  $("msg-" + kind).textContent = "提交中…";
+  const r = await fetch("/api/submit", { method: "POST", body: JSON.stringify(d) }), res = await r.json();
+  if (r.ok) { setTok(d.token); $("msg-" + kind).textContent = ""; toast(res.msg); $("subdlg").close(); refresh(); }
+  else $("msg-" + kind).textContent = res.error;
+  return false;
+}
+refresh().then(() => { loadHistory(); loadNet(); });
+setInterval(refresh, 5000); setInterval(() => { loadHistory(); loadNet(); }, 60000);
+</script>
+</body>
+</html>

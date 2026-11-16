@@ -1,0 +1,14 @@
+[Unit]
+Description=gq GPU queue daemon (scheduler + web page)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Adjust the path to where this repository lives on the scheduler host.
+ExecStart=/opt/gpuq/gq daemon
+Restart=always
+RestartSec=10
+Environment=HOME=/root
+
+[Install]
+WantedBy=multi-user.target

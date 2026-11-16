@@ -1,0 +1,5 @@
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+# your own machine pool (addresses, alert command): keep it out of the repository
+hosts.toml
